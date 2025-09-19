@@ -18,3 +18,12 @@ services:
 
     # add more service definitions when explicit configuration is needed
     # please note that last definitions always *replace* previous ones
+
+    App\Service\ShipAIService:
+        arguments:
+            $authToken: '%env(AUTH_TOKEN)%'
+
+    App\Command\RunShipAICommand:
+        arguments:
+            $shipAIService: '@App\Service\ShipAIService'
+        tags: [ 'console.command' ]
