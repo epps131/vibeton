@@ -37,16 +37,16 @@ class RunShipAICommand extends Command
         $interval = (int) $input->getOption('interval');
         $maxTicks = (int) $input->getOption('max-ticks');
 
-        $io->title('Advanced Ship AI Controller');
-        $io->writeln('Initializing map data...');
+        $io->title('Simple Aggressive Ship AI');
+        $io->writeln('Initializing...');
 
         try {
-            // Инициализируем карту и препятствия ПЕРЕД началом цикла
             $this->shipAIService->initialize();
-            $io->writeln('Map initialized successfully');
+            $io->writeln('Ready to attack!');
             $io->writeln('');
 
             $tickCount = 0;
+
             do {
                 $tickCount++;
 
@@ -55,52 +55,65 @@ class RunShipAICommand extends Command
                     break;
                 }
 
-                // Получаем состояние игры
                 $gameState = $this->shipAIService->getGameState();
 
+                $io->section(sprintf('Tick: %d', $gameState['tick']));
                 $io->writeln(sprintf(
-                    'Tick: %d | My ships: %d | Enemy ships: %d',
-                    $gameState['tick'],
+                    'My ships: %d | Enemy ships: %d',
                     count($gameState['myShips'] ?? []),
                     count($gameState['enemyShips'] ?? [])
                 ));
 
-                // Принимаем решения
+                // Логируем врагов
+                if (!empty($gameState['enemyShips'])) {
+                    $io->writeln('Enemies detected:');
+                    foreach ($gameState['enemyShips'] as $enemy) {
+                        $io->writeln(sprintf('  %s at (%d, %d) HP: %d',
+                            $enemy['playerName'] ?? 'Unknown',
+                            $enemy['x'],
+                            $enemy['y'],
+                            $enemy['hp']
+                        ));
+                    }
+                }
+
                 $commands = $this->shipAIService->makeDecisions($gameState);
 
                 if (!empty($commands)) {
-                    $io->writeln(sprintf('Sending %d commands:', count($commands)));
+                    $io->writeln('Sending commands:');
 
                     foreach ($commands as $command) {
-                        $action = [];
+                        $actions = [];
+
                         if ($command['acceleration'] !== 0) {
-                            $action[] = sprintf('Accel: %d', $command['acceleration']);
+                            $actions[] = sprintf('Accel: %d', $command['acceleration']);
                         }
                         if ($command['rotate'] !== 0) {
-                            $action[] = sprintf('Rotate: %d', $command['rotate']);
+                            $actions[] = sprintf('Rotate: %d°', $command['rotate']);
                         }
                         if ($command['cannonShoot'] !== null) {
-                            $action[] = sprintf('Shoot: (%d, %d)',
+                            $actions[] = sprintf('FIRE! at (%d, %d)',
                                 $command['cannonShoot']['x'],
                                 $command['cannonShoot']['y']
                             );
                         }
 
-                        if (!empty($action)) {
+                        if (!empty($actions)) {
                             $io->writeln(sprintf('  Ship %s: %s',
                                 substr($command['id'], 0, 8),
-                                implode(', ', $action)
+                                implode(', ', $actions)
                             ));
+                        } else {
+                            $io->writeln(sprintf('  Ship %s: No action', substr($command['id'], 0, 8)));
                         }
                     }
 
-                    // Отправляем команды
                     $result = $this->shipAIService->sendCommands($commands);
 
                     if (isset($result['success']) && $result['success']) {
-                        $io->writeln('Commands executed successfully');
+                        $io->writeln('✓ Commands sent successfully');
                     } else {
-                        $io->error('Failed to execute commands: ' . ($result['error'] ?? 'Unknown error'));
+                        $io->error('✗ Command error: ' . ($result['error'] ?? 'Unknown'));
                     }
                 } else {
                     $io->writeln('No commands to send');
@@ -117,8 +130,7 @@ class RunShipAICommand extends Command
             return Command::SUCCESS;
 
         } catch (\Exception $e) {
-            $io->error('Error: ' . $e->getMessage() . '. Line : ' . $e->getLine());
-
+            $io->error('Error: ' . $e->getMessage());
             return Command::FAILURE;
         }
     }
