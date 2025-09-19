@@ -17,3 +17,6 @@ X-Auth-Token: a183405e-8c23-4e4b-afca-7b4a5b115fa8
 
 ###
 
+GET https://games-test.datsteam.dev/api/map
+accept: application/json
+X-Auth-Token: a183405e-8c23-4e4b-afca-7b4a5b115fa8

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Game Map 2000x2000</title>
+    <title>Game Map 2000x2000 with Ships</title>
     <style>
         body {
             margin: 0;
@@ -28,7 +28,9 @@
             border-radius: 8px;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
             z-index: 1000;
-            min-width: 200px;
+            min-width: 250px;
+            max-height: 90vh;
+            overflow-y: auto;
         }
 
         .controls h3 {
@@ -40,6 +42,18 @@
             margin: 10px 0;
             font-size: 12px;
             color: #666;
+        }
+
+        .ship-info {
+            margin: 8px 0;
+            padding: 8px;
+            border-radius: 4px;
+            background: #f8f8f8;
+            border-left: 3px solid #4CAF50;
+        }
+
+        .enemy-ship {
+            border-left-color: #f44336;
         }
 
         button {
@@ -72,14 +86,61 @@
             font-size: 12px;
             color: #333;
         }
+
+        .legend {
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin: 4px 0;
+        }
+
+        .legend-color {
+            width: 16px;
+            height: 16px;
+            margin-right: 8px;
+            border-radius: 2px;
+        }
     </style>
 </head>
 <body>
 <div class="controls">
     <h3>🗺️ Карта: {{ mapWidth }}×{{ mapHeight }}</h3>
     <div class="stats">
-        Препятствий: <span id="obstacleCount">{{ obstacles|length }}</span>
+        ⏱️ Тик: <span id="tick">{{ tick }}</span><br>
+        🚢 Моих кораблей: <span id="myShipsCount">{{ myShips|length }}</span><br>
+        ⚔️ Вражеских кораблей: <span id="enemyShipsCount">{{ enemyShips|length }}</span><br>
+        🪨 Препятствий: <span id="obstacleCount">{{ obstacles|length }}</span>
     </div>
+
+    <div id="shipsList">
+        <h4>Мои корабли:</h4>
+        {% for ship in myShips %}
+            <div class="ship-info" data-ship-id="{{ ship.id }}">
+                🚢 #{{ loop.index }}: ({{ ship.x }}, {{ ship.y }})<br>
+                HP: {{ ship.hp }}/{{ ship.size }} | 💨: {{ ship.speed }}
+            </div>
+        {% endfor %}
+
+        {% if enemyShips|length > 0 %}
+            <h4>Вражеские корабли:</h4>
+            {% for ship in enemyShips %}
+                <div class="ship-info enemy-ship" data-ship-id="{{ ship.id }}">
+                    ⚔️ #{{ loop.index }}: ({{ ship.x }}, {{ ship.y }})<br>
+                    HP: {{ ship.hp }}/{{ ship.size }} | 💨: {{ ship.speed }}
+                </div>
+            {% endfor %}
+        {% endif %}
+    </div>
+
     <div>
         <button onclick="zoomIn()">➕ Увеличить</button>
         <button onclick="zoomOut()">➖ Уменьшить</button>
@@ -95,18 +156,41 @@
     X: 0, Y: 0
 </div>
 
+<div class="legend">
+    <div class="legend-item">
+        <div class="legend-color" style="background: #8d6e63;"></div>
+        <span>Препятствия</span>
+    </div>
+    <div class="legend-item">
+        <div class="legend-color" style="background: #4CAF50;"></div>
+        <span>Мои корабли</span>
+    </div>
+    <div class="legend-item">
+        <div class="legend-color" style="background: #f44336;"></div>
+        <span>Вражеские корабли</span>
+    </div>
+    <div class="legend-item">
+        <div class="legend-color" style="background: #2196F3;"></div>
+        <span>Область сканирования</span>
+    </div>
+    <div class="legend-item">
+        <div class="legend-color" style="background: #FF9800;"></div>
+        <span>Область стрельбы</span>
+    </div>
+</div>
+
 <canvas id="mapCanvas"></canvas>
 
 <script>
     // Конфигурация
-    const BASE_CELL_SIZE = 1; // Базовый размер клетки
-    let scale = 5; // Начальный масштаб
+    const BASE_CELL_SIZE = 1;
+    let scale = 5;
     let offsetX = 0;
     let offsetY = 0;
     let isDragging = false;
     let lastX, lastY;
     let lastDrawTime = 0;
-    const DRAW_THROTTLE = 16; // ~60 FPS
+    const DRAW_THROTTLE = 16;
 
     // Элементы DOM
     const canvas = document.getElementById('mapCanvas');
@@ -115,14 +199,21 @@
     const zoomLevel = document.getElementById('zoomLevel');
     const coordsDisplay = document.getElementById('coordinates');
 
-    // Данные карты из Twig
+    // Данные из Twig
     const MAP_WIDTH = {{ mapWidth }};
     const MAP_HEIGHT = {{ mapHeight }};
     const OBSTACLES = {{ obstacles|json_encode|raw }};
+    const MY_SHIPS = {{ myShips|json_encode|raw }};
+    const ENEMY_SHIPS = {{ enemyShips|json_encode|raw }};
+    let CURRENT_TICK = {{ tick }};
 
-    // Статистика
-    console.log(`Карта: ${MAP_WIDTH}x${MAP_HEIGHT}`);
-    console.log(`Препятствий: ${OBSTACLES.length}`);
+    // Направления для кораблей
+    const DIRECTIONS = {
+        'north': { dx: 0, dy: -1, angle: -Math.PI/2 },
+        'south': { dx: 0, dy: 1, angle: Math.PI/2 },
+        'east': { dx: 1, dy: 0, angle: 0 },
+        'west': { dx: -1, dy: 0, angle: Math.PI }
+    };
 
     // Инициализация canvas
     function initCanvas() {
@@ -142,11 +233,17 @@
         requestAnimationFrame(() => {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // Отрисовка сетки (опционально)
+            // Отрисовка сетки
             drawGrid();
 
             // Отрисовка препятствий
             drawObstacles();
+
+            // Отрисовка кораблей
+            drawShips();
+
+            // Отрисовка радиусов действия
+            drawRadii();
         });
     }
 
@@ -159,7 +256,6 @@
         ctx.strokeStyle = '#e0e0e0';
         ctx.lineWidth = 0.5;
 
-        // Вертикальные линии
         for (let x = startX; x < offsetX + canvas.width; x += cellSize * 10) {
             const screenX = (x - offsetX) * scale;
             ctx.beginPath();
@@ -168,7 +264,6 @@
             ctx.stroke();
         }
 
-        // Горизонтальные линии
         for (let y = startY; y < offsetY + canvas.height; y += cellSize * 10) {
             const screenY = (y - offsetY) * scale;
             ctx.beginPath();
@@ -182,7 +277,7 @@
     function drawObstacles() {
         const cellSize = BASE_CELL_SIZE * scale;
 
-        ctx.fillStyle = '#8d6e63'; // Цвет препятствий
+        ctx.fillStyle = '#8d6e63';
 
         OBSTACLES.forEach(obstacle => {
             const startX = obstacle.start[0];
@@ -197,15 +292,9 @@
                         const screenX = (worldX - offsetX) * scale;
                         const screenY = (worldY - offsetY) * scale;
 
-                        // Проверка видимости
                         if (screenX > -cellSize && screenX < canvas.width + cellSize &&
                             screenY > -cellSize && screenY < canvas.height + cellSize) {
-                            ctx.fillRect(
-                                screenX,
-                                screenY,
-                                cellSize,
-                                cellSize
-                            );
+                            ctx.fillRect(screenX, screenY, cellSize, cellSize);
                         }
                     }
                 });
@@ -213,7 +302,110 @@
         });
     }
 
-    // Навигация мышью
+    // Отрисовка кораблей
+    function drawShips() {
+        // Мои корабли (зеленые)
+        MY_SHIPS.forEach(ship => {
+            drawShip(ship, '#4CAF50');
+        });
+
+        // Вражеские корабли (красные)
+        ENEMY_SHIPS.forEach(ship => {
+            drawShip(ship, '#f44336');
+        });
+    }
+
+    // Отрисовка одного корабля
+    function drawShip(ship, color) {
+        const screenX = (ship.x - offsetX) * scale;
+        const screenY = (ship.y - offsetY) * scale;
+        const shipSize = ship.size * scale;
+
+        // Проверка видимости
+        if (screenX < -shipSize || screenX > canvas.width + shipSize ||
+            screenY < -shipSize || screenY > canvas.height + shipSize) {
+            return;
+        }
+
+        // Рисуем корабль как треугольник по направлению
+        const direction = DIRECTIONS[ship.direction] || DIRECTIONS.south;
+
+        ctx.save();
+        ctx.translate(screenX + shipSize/2, screenY + shipSize/2);
+        ctx.rotate(direction.angle);
+
+        // Корпус корабля
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.moveTo(shipSize/2, 0);
+        ctx.lineTo(-shipSize/2, -shipSize/2);
+        ctx.lineTo(-shipSize/2, shipSize/2);
+        ctx.closePath();
+        ctx.fill();
+
+        // Обводка
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        // HP бар
+        const hpPercent = ship.hp / ship.size;
+        ctx.fillStyle = hpPercent > 0.5 ? '#4CAF50' : hpPercent > 0.25 ? '#FF9800' : '#f44336';
+        ctx.fillRect(-shipSize/2, -shipSize - 5, shipSize * hpPercent, 3);
+
+        ctx.restore();
+
+        // ID корабля
+        ctx.fillStyle = '#000';
+        ctx.font = '10px Arial';
+        ctx.fillText(ship.id.substring(0, 8), screenX, screenY - 10);
+    }
+
+    // Отрисовка радиусов действия
+    function drawRadii() {
+        MY_SHIPS.forEach(ship => {
+            drawShipRadii(ship, '#2196F3', '#FF9800');
+        });
+
+        ENEMY_SHIPS.forEach(ship => {
+            drawShipRadii(ship, '#ff5252', '#ff7676');
+        });
+    }
+
+    // Отрисовка радиусов для одного корабля
+    function drawShipRadii(ship, scanColor, cannonColor) {
+        const screenX = (ship.x - offsetX) * scale;
+        const screenY = (ship.y - offsetY) * scale;
+
+        // Радиус сканирования
+        ctx.beginPath();
+        ctx.arc(screenX, screenY, ship.scanRadius * scale, 0, 2 * Math.PI);
+        ctx.strokeStyle = scanColor;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        // Радиус стрельбы
+        ctx.beginPath();
+        ctx.arc(screenX, screenY, ship.cannonRadius * scale, 0, 2 * Math.PI);
+        ctx.strokeStyle = cannonColor;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // КД стрельбы
+        if (ship.cannonCooldownLeft > 0) {
+            ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
+            ctx.beginPath();
+            ctx.arc(screenX, screenY, ship.cannonRadius * scale, 0, 2 * Math.PI);
+            ctx.fill();
+
+            ctx.fillStyle = '#fff';
+            ctx.font = '12px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText(ship.cannonCooldownLeft.toString(), screenX, screenY + 4);
+        }
+    }
+
+    // Навигация (остается без изменений)
     canvas.addEventListener('mousedown', (e) => {
         isDragging = true;
         lastX = e.clientX;
@@ -222,7 +414,6 @@
     });
 
     canvas.addEventListener('mousemove', (e) => {
-        // Обновление координат
         const rect = canvas.getBoundingClientRect();
         const mouseX = e.clientX - rect.left;
         const mouseY = e.clientY - rect.top;
@@ -238,7 +429,6 @@
             offsetX -= deltaX;
             offsetY -= deltaY;
 
-            // Ограничение перемещения
             offsetX = Math.max(0, Math.min(offsetX, MAP_WIDTH - canvas.width / scale));
             offsetY = Math.max(0, Math.min(offsetY, MAP_HEIGHT - canvas.height / scale));
 
@@ -254,12 +444,12 @@
         canvas.style.cursor = 'grab';
     });
 
+    // Остальные функции без изменений...
     canvas.addEventListener('mouseleave', () => {
         isDragging = false;
         canvas.style.cursor = 'default';
     });
 
-    // Зум колесом мыши
     canvas.addEventListener('wheel', (e) => {
         e.preventDefault();
 
@@ -283,7 +473,6 @@
         drawMap();
     });
 
-    // Управление зумом
     function zoomIn() {
         scale = Math.min(20, scale + 1);
         updateZoomUI();
@@ -315,12 +504,10 @@
         drawMap();
     });
 
-    // Ресайз окна
     window.addEventListener('resize', () => {
         initCanvas();
     });
 
-    // Горячие клавиши
     document.addEventListener('keydown', (e) => {
         switch(e.key) {
             case '+':
@@ -357,6 +544,14 @@
         initCanvas();
         resetView();
         updateZoomUI();
+
+        // Автоматически центрировать на своих кораблях
+        if (MY_SHIPS.length > 0) {
+            const firstShip = MY_SHIPS[0];
+            offsetX = firstShip.x - canvas.width / (2 * scale);
+            offsetY = firstShip.y - canvas.height / (2 * scale);
+            drawMap();
+        }
     });
 </script>
 </body>

@@ -15,10 +15,15 @@ final class MapController extends AbstractController
     {
         $mapData = json_decode(file_get_contents('map.json'), true);
 
+        $shipsData = json_decode(file_get_contents('ships.json'), true);
+
         return $this->render('map.html.twig', [
             'mapWidth' => $mapData['map'][0],
             'mapHeight' => $mapData['map'][1],
-            'obstacles' => $mapData['obstacles']
+            'obstacles' => $mapData['obstacles'],
+            'myShips' => $shipsData['myShips'],
+            'enemyShips' => $shipsData['enemyShips'],
+            'tick' => $shipsData['tick']
         ]);
     }
 }
