@@ -28,7 +28,7 @@
             border-radius: 8px;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
             z-index: 1000;
-            width: 220px;
+            width: 240px;
             max-height: 80vh;
             overflow-y: auto;
             font-size: 12px;
@@ -128,7 +128,7 @@
         .legend {
             position: fixed;
             bottom: 10px;
-            right: 240px;
+            right: 260px;
             background: rgba(255, 255, 255, 0.9);
             padding: 6px 10px;
             border-radius: 4px;
@@ -157,7 +157,7 @@
             border-radius: 8px;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
             z-index: 1000;
-            max-width: 250px;
+            max-width: 280px;
             font-size: 11px;
         }
 
@@ -170,6 +170,12 @@
         #shipsList h4 {
             margin: 8px 0 4px 0;
             font-size: 12px;
+        }
+
+        .player-name {
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 4px;
         }
 
         .border-warning {
@@ -207,11 +213,11 @@
         {% endfor %}
 
         {% if enemyShips|length > 0 %}
-            <h4>Вражеские:</h4>
+            <h4>Вражеские корабли:</h4>
             {% for ship in enemyShips %}
                 <div class="ship-info enemy-ship" data-ship-id="{{ ship.id }}" onclick="centerOnShip('{{ ship.id }}')">
-                    ⚔️ #{{ loop.index }}: ({{ ship.x }}, {{ ship.y }})<br>
-                    HP: {{ ship.hp }}/{{ ship.size }} | 💨: {{ ship.speed }}
+                    ⚔️ {{ ship.playerName }}<br>
+                    ({{ ship.x }}, {{ ship.y }}) | HP: {{ ship.hp }}/{{ ship.size }}
                 </div>
             {% endfor %}
         {% endif %}
@@ -222,6 +228,8 @@
         <button onclick="zoomOut()">➖</button>
         <button onclick="resetView()">🎯</button>
         <button onclick="centerOnAllShips()">👁️</button>
+        <button onclick="toggleEnemyRadii()">📡</button>
+        <button onclick="focusOnEnemies()">🎯 Враги</button>
     </div>
 
     <div class="zoom-controls">
@@ -252,6 +260,14 @@
         <div class="legend-color" style="background: #f44336;"></div>
         <span>Вражеские корабли</span>
     </div>
+    <div class="legend-item">
+        <div class="legend-color" style="background: #2196F3;"></div>
+        <span>Область сканирования</span>
+    </div>
+    <div class="legend-item">
+        <div class="legend-color" style="background: #FF9800;"></div>
+        <span>Область стрельбы</span>
+    </div>
 </div>
 
 <div class="border-warning" id="borderWarning">
@@ -271,6 +287,7 @@
     let lastDrawTime = 0;
     const DRAW_THROTTLE = 16;
     let selectedShipId = null;
+    let showEnemyRadii = false;
 
     // Элементы DOM
     const canvas = document.getElementById('mapCanvas');
@@ -308,21 +325,18 @@
         drawMap();
     }
 
-    // Центрирование на корабле (ИСПРАВЛЕНО для краев карты)
+    // Центрирование на корабле
     function centerOnShip(shipId) {
         const ship = ALL_SHIPS.find(s => s.id === shipId);
         if (ship) {
-            // Вычисляем целевые координаты для центрирования
             let targetX = ship.x - canvas.width / (2 * scale);
             let targetY = ship.y - canvas.height / (2 * scale);
 
-            // Проверяем, находится ли корабль у края карты
             const isAtLeftEdge = ship.x < canvas.width / (2 * scale);
             const isAtRightEdge = ship.x > MAP_WIDTH - canvas.width / (2 * scale);
             const isAtTopEdge = ship.y < canvas.height / (2 * scale);
             const isAtBottomEdge = ship.y > MAP_HEIGHT - canvas.height / (2 * scale);
 
-            // Корректируем для краев карты
             if (isAtLeftEdge) {
                 targetX = 0;
                 showBorderWarning('left');
@@ -343,11 +357,51 @@
                 hideBorderWarning();
             }
 
-            // Плавное перемещение к целевым координатам
             animatePanTo(targetX, targetY);
-
             selectShip(shipId);
         }
+    }
+
+    // Фокус на вражеских кораблях
+    function focusOnEnemies() {
+        if (ENEMY_SHIPS.length === 0) return;
+
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+
+        ENEMY_SHIPS.forEach(ship => {
+            minX = Math.min(minX, ship.x);
+            maxX = Math.max(maxX, ship.x);
+            minY = Math.min(minY, ship.y);
+            maxY = Math.max(maxY, ship.y);
+        });
+
+        const padding = 100;
+        minX = Math.max(0, minX - padding);
+        maxX = Math.min(MAP_WIDTH, maxX + padding);
+        minY = Math.max(0, minY - padding);
+        maxY = Math.min(MAP_HEIGHT, maxY + padding);
+
+        const width = maxX - minX;
+        const height = maxY - minY;
+
+        const scaleX = canvas.width / width;
+        const scaleY = canvas.height / height;
+
+        scale = Math.min(scaleX, scaleY, 15);
+        scale = Math.max(scale, 3); // Минимальный масштаб для врагов
+
+        offsetX = Math.max(0, Math.min(minX, MAP_WIDTH - canvas.width / scale));
+        offsetY = Math.max(0, Math.min(minY, MAP_HEIGHT - canvas.height / scale));
+
+        selectShip(null);
+        updateZoomUI();
+        drawMap();
+    }
+
+    // Переключение отображения радиусов врагов
+    function toggleEnemyRadii() {
+        showEnemyRadii = !showEnemyRadii;
+        drawMap();
     }
 
     // Плавная анимация перемещения
@@ -361,7 +415,6 @@
             const elapsed = currentTime - startTime;
             const progress = Math.min(elapsed / duration, 1);
 
-            // easing function
             const easeProgress = 1 - Math.pow(1 - progress, 3);
 
             offsetX = startX + (targetX - startX) * easeProgress;
@@ -377,7 +430,7 @@
         animate();
     }
 
-    // Показать предупреждение о крае карты
+    // Показать/скрыть предупреждение о крае
     function showBorderWarning(side) {
         const messages = {
             'left': '⚠️ Корабль у левого края',
@@ -421,10 +474,9 @@
         const scaleX = canvas.width / width;
         const scaleY = canvas.height / height;
 
-        scale = Math.min(scaleX, scaleY, 15); // Ограничиваем максимальный масштаб
+        scale = Math.min(scaleX, scaleY, 15);
         scale = Math.max(scale, 1);
 
-        // Убеждаемся, что не выходим за границы карты
         offsetX = Math.max(0, Math.min(minX, MAP_WIDTH - canvas.width / scale));
         offsetY = Math.max(0, Math.min(minY, MAP_HEIGHT - canvas.height / scale));
 
@@ -450,13 +502,27 @@
 
             const ship = ALL_SHIPS.find(s => s.id === shipId);
             if (ship) {
-                selectedShipDetails.innerHTML = `
+                let details = `
                         <strong>${ship.id.substring(0, 12)}...</strong><br>
                         Позиция: (${ship.x}, ${ship.y})<br>
                         HP: ${ship.hp}/${ship.size}<br>
                         Скорость: ${ship.speed}<br>
                         Направление: ${ship.direction}
                     `;
+
+                // Добавляем информацию об игроке для вражеских кораблей
+                if (ship.playerName) {
+                    details = `<div class="player-name">${ship.playerName}</div>` + details;
+                }
+
+                // Добавляем дополнительную информацию для своих кораблей
+                if (MY_SHIPS.find(s => s.id === shipId)) {
+                    details += `<br>Сканирование: ${ship.scanRadius}<br>`;
+                    details += `Стрельба: ${ship.cannonRadius}<br>`;
+                    details += `КД: ${ship.cannonCooldownLeft}/${ship.cannonCooldown}`;
+                }
+
+                selectedShipDetails.innerHTML = details;
                 selectedShipInfo.style.display = 'block';
             }
         } else {
@@ -480,7 +546,7 @@
                 Math.pow(ship.x - worldX, 2) +
                 Math.pow(ship.y - worldY, 2)
             );
-            return distance < Math.max(10, ship.size * 2); // Увеличиваем область клика
+            return distance < Math.max(10, ship.size * 2);
         });
 
         if (clickedShip) {
@@ -504,81 +570,124 @@
             drawGrid();
             drawObstacles();
             drawShips();
-            drawRadii();
+
+            // Рисуем радиусы для своих кораблей всегда, для врагов - по настройке
+            drawRadii(MY_SHIPS, '#2196F3', '#FF9800');
+            if (showEnemyRadii) {
+                drawRadii(ENEMY_SHIPS, '#ff5252', '#ff7676');
+            }
 
             if (selectedShipId) {
                 highlightSelectedShip();
             }
 
-            // Рисуем границы карты
             drawMapBounds();
         });
     }
 
-    // Рисуем границы карты
-    function drawMapBounds() {
-        ctx.strokeStyle = '#ff0000';
-        ctx.lineWidth = 2;
-        ctx.setLineDash([5, 5]);
+    // Отрисовка радиусов для указанных кораблей
+    function drawRadii(ships, scanColor, cannonColor) {
+        ships.forEach(ship => {
+            const screenX = (ship.x - offsetX) * scale;
+            const screenY = (ship.y - offsetY) * scale;
 
-        // Левая граница
-        if (offsetX <= 0) {
+            if (screenX < -ship.scanRadius * scale || screenX > canvas.width + ship.scanRadius * scale ||
+                screenY < -ship.scanRadius * scale || screenY > canvas.height + ship.scanRadius * scale) {
+                return;
+            }
+
+            // Радиус сканирования
             ctx.beginPath();
-            ctx.moveTo(0, 0);
-            ctx.lineTo(0, canvas.height);
+            ctx.arc(screenX, screenY, ship.scanRadius * scale, 0, 2 * Math.PI);
+            ctx.strokeStyle = scanColor;
+            ctx.lineWidth = 1;
             ctx.stroke();
-        }
 
-        // Правая граница
-        const rightEdge = (MAP_WIDTH - offsetX) * scale;
-        if (rightEdge >= canvas.width - 2) {
-            ctx.beginPath();
-            ctx.moveTo(canvas.width, 0);
-            ctx.lineTo(canvas.width, canvas.height);
-            ctx.stroke();
-        }
+            // Радиус стрельбы (только для своих кораблей или если включено для врагов)
+            if (scanColor !== '#ff5252' || showEnemyRadii) {
+                ctx.beginPath();
+                ctx.arc(screenX, screenY, ship.cannonRadius * scale, 0, 2 * Math.PI);
+                ctx.strokeStyle = cannonColor;
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+            }
 
-        // Верхняя граница
-        if (offsetY <= 0) {
-            ctx.beginPath();
-            ctx.moveTo(0, 0);
-            ctx.lineTo(canvas.width, 0);
-            ctx.stroke();
-        }
+            // КД стрельбы (только для своих кораблей)
+            if (scanColor !== '#ff5252' && ship.cannonCooldownLeft > 0) {
+                ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
+                ctx.beginPath();
+                ctx.arc(screenX, screenY, ship.cannonRadius * scale, 0, 2 * Math.PI);
+                ctx.fill();
 
-        // Нижняя граница
-        const bottomEdge = (MAP_HEIGHT - offsetY) * scale;
-        if (bottomEdge >= canvas.height - 2) {
-            ctx.beginPath();
-            ctx.moveTo(0, canvas.height);
-            ctx.lineTo(canvas.width, canvas.height);
-            ctx.stroke();
-        }
-
-        ctx.setLineDash([]);
+                ctx.fillStyle = '#fff';
+                ctx.font = '12px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText(ship.cannonCooldownLeft.toString(), screenX, screenY + 4);
+            }
+        });
     }
 
-    // Подсветка выбранного корабля
-    function highlightSelectedShip() {
-        const ship = ALL_SHIPS.find(s => s.id === selectedShipId);
-        if (!ship) return;
+    // Отрисовка кораблей
+    function drawShips() {
+        // Сначала враги (под своими кораблями)
+        ENEMY_SHIPS.forEach(ship => {
+            drawShip(ship, '#f44336', true);
+        });
 
+        // Затем свои корабли (поверх врагов)
+        MY_SHIPS.forEach(ship => {
+            drawShip(ship, '#4CAF50', false);
+        });
+    }
+
+    // Отрисовка одного корабля
+    function drawShip(ship, color, isEnemy) {
         const screenX = (ship.x - offsetX) * scale;
         const screenY = (ship.y - offsetY) * scale;
         const shipSize = ship.size * scale;
 
+        if (screenX < -shipSize || screenX > canvas.width + shipSize ||
+            screenY < -shipSize || screenY > canvas.height + shipSize) {
+            return;
+        }
+
+        const direction = DIRECTIONS[ship.direction] || DIRECTIONS.south;
+
         ctx.save();
+        ctx.translate(screenX + shipSize/2, screenY + shipSize/2);
+        ctx.rotate(direction.angle);
+
+        // Корпус корабля
+        ctx.fillStyle = color;
         ctx.beginPath();
-        ctx.arc(screenX + shipSize/2, screenY + shipSize/2, shipSize * 1.5, 0, 2 * Math.PI);
-        ctx.strokeStyle = '#FFD700';
-        ctx.lineWidth = 2;
-        ctx.setLineDash([5, 3]);
+        ctx.moveTo(shipSize/2, 0);
+        ctx.lineTo(-shipSize/2, -shipSize/2);
+        ctx.lineTo(-shipSize/2, shipSize/2);
+        ctx.closePath();
+        ctx.fill();
+
+        // Обводка
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 1;
         ctx.stroke();
-        ctx.setLineDash([]);
+
+        // HP бар
+        const hpPercent = ship.hp / ship.size;
+        ctx.fillStyle = hpPercent > 0.5 ? '#4CAF50' : hpPercent > 0.25 ? '#FF9800' : '#f44336';
+        ctx.fillRect(-shipSize/2, -shipSize - 4, shipSize * hpPercent, 2);
+
         ctx.restore();
+
+        // Имя игрока для вражеских кораблей
+        if (isEnemy && scale > 3) {
+            ctx.fillStyle = '#000';
+            ctx.font = '10px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText(ship.playerName || 'Enemy', screenX + shipSize/2, screenY - 10);
+        }
     }
 
-    // Остальные функции отрисовки без изменений...
+    // Остальные функции без изменений...
     function drawGrid() {
         const cellSize = BASE_CELL_SIZE * scale;
         const startX = Math.floor(offsetX / cellSize) * cellSize;
@@ -636,84 +745,64 @@
         });
     }
 
-    function drawShips() {
-        MY_SHIPS.forEach(ship => {
-            drawShip(ship, '#4CAF50');
-        });
+    function highlightSelectedShip() {
+        const ship = ALL_SHIPS.find(s => s.id === selectedShipId);
+        if (!ship) return;
 
-        ENEMY_SHIPS.forEach(ship => {
-            drawShip(ship, '#f44336');
-        });
-    }
-
-    function drawShip(ship, color) {
         const screenX = (ship.x - offsetX) * scale;
         const screenY = (ship.y - offsetY) * scale;
         const shipSize = ship.size * scale;
 
-        if (screenX < -shipSize || screenX > canvas.width + shipSize ||
-            screenY < -shipSize || screenY > canvas.height + shipSize) {
-            return;
-        }
-
-        const direction = DIRECTIONS[ship.direction] || DIRECTIONS.south;
-
         ctx.save();
-        ctx.translate(screenX + shipSize/2, screenY + shipSize/2);
-        ctx.rotate(direction.angle);
-
-        ctx.fillStyle = color;
         ctx.beginPath();
-        ctx.moveTo(shipSize/2, 0);
-        ctx.lineTo(-shipSize/2, -shipSize/2);
-        ctx.lineTo(-shipSize/2, shipSize/2);
-        ctx.closePath();
-        ctx.fill();
-
-        ctx.strokeStyle = '#000';
-        ctx.lineWidth = 1;
+        ctx.arc(screenX + shipSize/2, screenY + shipSize/2, shipSize * 1.5, 0, 2 * Math.PI);
+        ctx.strokeStyle = '#FFD700';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 3]);
         ctx.stroke();
-
-        const hpPercent = ship.hp / ship.size;
-        ctx.fillStyle = hpPercent > 0.5 ? '#4CAF50' : hpPercent > 0.25 ? '#FF9800' : '#f44336';
-        ctx.fillRect(-shipSize/2, -shipSize - 4, shipSize * hpPercent, 2);
-
+        ctx.setLineDash([]);
         ctx.restore();
     }
 
-    function drawRadii() {
-        MY_SHIPS.forEach(ship => {
-            drawShipRadii(ship, '#2196F3', '#FF9800');
-        });
+    function drawMapBounds() {
+        ctx.strokeStyle = '#ff0000';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 5]);
 
-        ENEMY_SHIPS.forEach(ship => {
-            drawShipRadii(ship, '#ff5252', '#ff7676');
-        });
-    }
-
-    function drawShipRadii(ship, scanColor, cannonColor) {
-        const screenX = (ship.x - offsetX) * scale;
-        const screenY = (ship.y - offsetY) * scale;
-
-        if (screenX < -ship.scanRadius * scale || screenX > canvas.width + ship.scanRadius * scale ||
-            screenY < -ship.scanRadius * scale || screenY > canvas.height + ship.scanRadius * scale) {
-            return;
+        if (offsetX <= 0) {
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(0, canvas.height);
+            ctx.stroke();
         }
 
-        ctx.beginPath();
-        ctx.arc(screenX, screenY, ship.scanRadius * scale, 0, 2 * Math.PI);
-        ctx.strokeStyle = scanColor;
-        ctx.lineWidth = 1;
-        ctx.stroke();
+        const rightEdge = (MAP_WIDTH - offsetX) * scale;
+        if (rightEdge >= canvas.width - 2) {
+            ctx.beginPath();
+            ctx.moveTo(canvas.width, 0);
+            ctx.lineTo(canvas.width, canvas.height);
+            ctx.stroke();
+        }
 
-        ctx.beginPath();
-        ctx.arc(screenX, screenY, ship.cannonRadius * scale, 0, 2 * Math.PI);
-        ctx.strokeStyle = cannonColor;
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
+        if (offsetY <= 0) {
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(canvas.width, 0);
+            ctx.stroke();
+        }
+
+        const bottomEdge = (MAP_HEIGHT - offsetY) * scale;
+        if (bottomEdge >= canvas.height - 2) {
+            ctx.beginPath();
+            ctx.moveTo(0, canvas.height);
+            ctx.lineTo(canvas.width, canvas.height);
+            ctx.stroke();
+        }
+
+        ctx.setLineDash([]);
     }
 
-    // Функции масштабирования
+    // Функции масштабирования и навигации...
     function zoomIn() {
         scale = Math.min(20, scale + 1);
         updateZoomUI();
@@ -739,7 +828,7 @@
         if (zoomLevel) zoomLevel.textContent = scale + 'x';
     }
 
-    // Обработчики событий
+    // Обработчики событий...
     canvas.addEventListener('mousedown', (e) => {
         isDragging = true;
         lastX = e.clientX;
@@ -764,7 +853,6 @@
             offsetX -= deltaX;
             offsetY -= deltaY;
 
-            // Ограничиваем границы с учетом масштаба
             offsetX = Math.max(0, Math.min(offsetX, MAP_WIDTH - canvas.width / scale));
             offsetY = Math.max(0, Math.min(offsetY, MAP_HEIGHT - canvas.height / scale));
 
@@ -804,7 +892,6 @@
         offsetX = worldX - mouseX / scale;
         offsetY = worldY - mouseY / scale;
 
-        // Ограничиваем после изменения масштаба
         offsetX = Math.max(0, Math.min(offsetX, MAP_WIDTH - canvas.width / scale));
         offsetY = Math.max(0, Math.min(offsetY, MAP_HEIGHT - canvas.height / scale));
 
@@ -817,12 +904,10 @@
             const oldScale = scale;
             scale = parseInt(e.target.value);
 
-            // Корректируем offset при изменении масштаба
             const ratio = scale / oldScale;
             offsetX = offsetX * ratio;
             offsetY = offsetY * ratio;
 
-            // Ограничиваем границы
             offsetX = Math.max(0, Math.min(offsetX, MAP_WIDTH - canvas.width / scale));
             offsetY = Math.max(0, Math.min(offsetY, MAP_HEIGHT - canvas.height / scale));
 
@@ -864,6 +949,12 @@
                 offsetY = Math.min(MAP_HEIGHT - canvas.height / scale, offsetY + 100 / scale);
                 drawMap();
                 break;
+            case 'e':
+                focusOnEnemies();
+                break;
+            case 'r':
+                toggleEnemyRadii();
+                break;
         }
     });
 
@@ -872,6 +963,11 @@
         initCanvas();
         resetView();
         updateZoomUI();
+
+        // Автофокус на врагах при загрузке, если они есть
+        if (ENEMY_SHIPS.length > 0) {
+            setTimeout(focusOnEnemies, 1000);
+        }
     });
 </script>
 </body>
