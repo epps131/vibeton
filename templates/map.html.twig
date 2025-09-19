@@ -1,101 +1,362 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Game Map</title>
+    <title>Game Map 2000x2000</title>
     <style>
-        .map-container {
-            display: grid;
-            grid-template-columns: repeat({{ mapWidth }}, 4px);
-            gap: 1px;
-            width: max-content;
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #f0f0f0;
+            font-family: Arial, sans-serif;
         }
 
-        .cell {
-            width: 4px;
-            height: 4px;
-            transition: background-color 0.2s;
+        #mapCanvas {
+            display: block;
+            cursor: grab;
         }
 
-        .cell-0 {
-            background-color: #e8f5e8; /* Пустая клетка - светлая зелень */
-        }
-
-        .cell-1 {
-            background-color: #8d6e63; /* Препятствие - коричневый */
-        }
-
-        .cell:hover {
-            background-color: #ffeb3b !important; /* Подсветка при наведении */
-        }
-
-        /* Для навигации по большой карте */
-        .map-wrapper {
-            overflow: auto;
-            max-width: 100vw;
-            max-height: 80vh;
-            border: 2px solid #333;
+        #mapCanvas:active {
+            cursor: grabbing;
         }
 
         .controls {
             position: fixed;
             top: 10px;
             right: 10px;
-            background: white;
-            padding: 10px;
-            border-radius: 5px;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+            background: rgba(255, 255, 255, 0.95);
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            z-index: 1000;
+            min-width: 200px;
+        }
+
+        .controls h3 {
+            margin: 0 0 10px 0;
+            color: #333;
+        }
+
+        .stats {
+            margin: 10px 0;
+            font-size: 12px;
+            color: #666;
+        }
+
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            margin: 4px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        button:hover {
+            background: #45a049;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            margin: 10px 0;
+        }
+
+        .coordinates {
+            position: fixed;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            color: #333;
         }
     </style>
 </head>
 <body>
 <div class="controls">
-    <h3>Карта: {{ mapWidth }}×{{ mapHeight }}</h3>
-    <p>Масштаб: <input type="range" id="zoom" min="1" max="8" value="2"></p>
-</div>
-
-<div class="map-wrapper">
-    <div class="map-container" id="game-map">
-        {% for chunk in mapChunks %}
-            <div class="map-chunk">
-                {% for row in chunk %}
-                    {% for cell in row %}
-                        <div class="cell cell-{{ cell }}"
-                             title="X: {{ loop.parent.loop.index0 }}, Y: {{ loop.index0 }}"></div>
-                    {% endfor %}
-                {% endfor %}
-            </div>
-        {% endfor %}
+    <h3>🗺️ Карта: {{ mapWidth }}×{{ mapHeight }}</h3>
+    <div class="stats">
+        Препятствий: <span id="obstacleCount">{{ obstacles|length }}</span>
+    </div>
+    <div>
+        <button onclick="zoomIn()">➕ Увеличить</button>
+        <button onclick="zoomOut()">➖ Уменьшить</button>
+        <button onclick="resetView()">🎯 Центрировать</button>
+    </div>
+    <div>
+        <input type="range" id="zoomSlider" min="1" max="20" value="5" step="1">
+        <div>Масштаб: <span id="zoomLevel">5x</span></div>
     </div>
 </div>
 
+<div class="coordinates" id="coordinates">
+    X: 0, Y: 0
+</div>
+
+<canvas id="mapCanvas"></canvas>
+
 <script>
-    // Масштабирование
-    document.getElementById('zoom').addEventListener('input', function (e) {
-        const scale = e.target.value;
-        const cells = document.querySelectorAll('.cell');
-        const size = scale * 4;
+    // Конфигурация
+    const BASE_CELL_SIZE = 1; // Базовый размер клетки
+    let scale = 5; // Начальный масштаб
+    let offsetX = 0;
+    let offsetY = 0;
+    let isDragging = false;
+    let lastX, lastY;
+    let lastDrawTime = 0;
+    const DRAW_THROTTLE = 16; // ~60 FPS
 
-        cells.forEach(cell => {
-            cell.style.width = size + 'px';
-            cell.style.height = size + 'px';
+    // Элементы DOM
+    const canvas = document.getElementById('mapCanvas');
+    const ctx = canvas.getContext('2d');
+    const zoomSlider = document.getElementById('zoomSlider');
+    const zoomLevel = document.getElementById('zoomLevel');
+    const coordsDisplay = document.getElementById('coordinates');
+
+    // Данные карты из Twig
+    const MAP_WIDTH = {{ mapWidth }};
+    const MAP_HEIGHT = {{ mapHeight }};
+    const OBSTACLES = {{ obstacles|json_encode|raw }};
+
+    // Статистика
+    console.log(`Карта: ${MAP_WIDTH}x${MAP_HEIGHT}`);
+    console.log(`Препятствий: ${OBSTACLES.length}`);
+
+    // Инициализация canvas
+    function initCanvas() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        drawMap();
+    }
+
+    // Основная функция отрисовки
+    function drawMap() {
+        const now = Date.now();
+        if (now - lastDrawTime < DRAW_THROTTLE) {
+            return;
+        }
+        lastDrawTime = now;
+
+        requestAnimationFrame(() => {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Отрисовка сетки (опционально)
+            drawGrid();
+
+            // Отрисовка препятствий
+            drawObstacles();
         });
+    }
 
-        document.querySelector('.map-container').style.gridTemplateColumns =
-            `repeat(${mapWidth}, ${size}px)`;
+    // Отрисовка сетки
+    function drawGrid() {
+        const cellSize = BASE_CELL_SIZE * scale;
+        const startX = Math.floor(offsetX / cellSize) * cellSize;
+        const startY = Math.floor(offsetY / cellSize) * cellSize;
+
+        ctx.strokeStyle = '#e0e0e0';
+        ctx.lineWidth = 0.5;
+
+        // Вертикальные линии
+        for (let x = startX; x < offsetX + canvas.width; x += cellSize * 10) {
+            const screenX = (x - offsetX) * scale;
+            ctx.beginPath();
+            ctx.moveTo(screenX, 0);
+            ctx.lineTo(screenX, canvas.height);
+            ctx.stroke();
+        }
+
+        // Горизонтальные линии
+        for (let y = startY; y < offsetY + canvas.height; y += cellSize * 10) {
+            const screenY = (y - offsetY) * scale;
+            ctx.beginPath();
+            ctx.moveTo(0, screenY);
+            ctx.lineTo(canvas.width, screenY);
+            ctx.stroke();
+        }
+    }
+
+    // Отрисовка препятствий
+    function drawObstacles() {
+        const cellSize = BASE_CELL_SIZE * scale;
+
+        ctx.fillStyle = '#8d6e63'; // Цвет препятствий
+
+        OBSTACLES.forEach(obstacle => {
+            const startX = obstacle.start[0];
+            const startY = obstacle.start[1];
+
+            obstacle.map.forEach((row, localY) => {
+                row.forEach((cell, localX) => {
+                    if (cell === 1) {
+                        const worldX = startX + localX;
+                        const worldY = startY + localY;
+
+                        const screenX = (worldX - offsetX) * scale;
+                        const screenY = (worldY - offsetY) * scale;
+
+                        // Проверка видимости
+                        if (screenX > -cellSize && screenX < canvas.width + cellSize &&
+                            screenY > -cellSize && screenY < canvas.height + cellSize) {
+                            ctx.fillRect(
+                                screenX,
+                                screenY,
+                                cellSize,
+                                cellSize
+                            );
+                        }
+                    }
+                });
+            });
+        });
+    }
+
+    // Навигация мышью
+    canvas.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        lastX = e.clientX;
+        lastY = e.clientY;
+        canvas.style.cursor = 'grabbing';
     });
 
-    // Ленивая загрузка для очень больших карт
-    const observer = new IntersectionObserver((entries) => {
-        entries.forEach(entry => {
-            if (entry.isIntersecting) {
-                entry.target.style.display = 'grid';
-            }
-        });
+    canvas.addEventListener('mousemove', (e) => {
+        // Обновление координат
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+        const worldX = Math.floor(offsetX + mouseX / scale);
+        const worldY = Math.floor(offsetY + mouseY / scale);
+
+        coordsDisplay.textContent = `X: ${worldX}, Y: ${worldY}`;
+
+        if (isDragging) {
+            const deltaX = (e.clientX - lastX) / scale;
+            const deltaY = (e.clientY - lastY) / scale;
+
+            offsetX -= deltaX;
+            offsetY -= deltaY;
+
+            // Ограничение перемещения
+            offsetX = Math.max(0, Math.min(offsetX, MAP_WIDTH - canvas.width / scale));
+            offsetY = Math.max(0, Math.min(offsetY, MAP_HEIGHT - canvas.height / scale));
+
+            lastX = e.clientX;
+            lastY = e.clientY;
+
+            drawMap();
+        }
     });
 
-    document.querySelectorAll('.map-chunk').forEach(chunk => {
-        chunk.style.display = 'none';
-        observer.observe(chunk);
+    canvas.addEventListener('mouseup', () => {
+        isDragging = false;
+        canvas.style.cursor = 'grab';
+    });
+
+    canvas.addEventListener('mouseleave', () => {
+        isDragging = false;
+        canvas.style.cursor = 'default';
+    });
+
+    // Зум колесом мыши
+    canvas.addEventListener('wheel', (e) => {
+        e.preventDefault();
+
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+
+        const worldX = offsetX + mouseX / scale;
+        const worldY = offsetY + mouseY / scale;
+
+        if (e.deltaY < 0) {
+            scale = Math.min(20, scale + 1);
+        } else {
+            scale = Math.max(1, scale - 1);
+        }
+
+        offsetX = worldX - mouseX / scale;
+        offsetY = worldY - mouseY / scale;
+
+        updateZoomUI();
+        drawMap();
+    });
+
+    // Управление зумом
+    function zoomIn() {
+        scale = Math.min(20, scale + 1);
+        updateZoomUI();
+        drawMap();
+    }
+
+    function zoomOut() {
+        scale = Math.max(1, scale - 1);
+        updateZoomUI();
+        drawMap();
+    }
+
+    function resetView() {
+        scale = 5;
+        offsetX = MAP_WIDTH / 2 - canvas.width / (2 * scale);
+        offsetY = MAP_HEIGHT / 2 - canvas.height / (2 * scale);
+        updateZoomUI();
+        drawMap();
+    }
+
+    function updateZoomUI() {
+        zoomSlider.value = scale;
+        zoomLevel.textContent = scale + 'x';
+    }
+
+    zoomSlider.addEventListener('input', (e) => {
+        scale = parseInt(e.target.value);
+        updateZoomUI();
+        drawMap();
+    });
+
+    // Ресайз окна
+    window.addEventListener('resize', () => {
+        initCanvas();
+    });
+
+    // Горячие клавиши
+    document.addEventListener('keydown', (e) => {
+        switch(e.key) {
+            case '+':
+            case '=':
+                zoomIn();
+                break;
+            case '-':
+                zoomOut();
+                break;
+            case '0':
+                resetView();
+                break;
+            case 'ArrowLeft':
+                offsetX -= 50 / scale;
+                drawMap();
+                break;
+            case 'ArrowRight':
+                offsetX += 50 / scale;
+                drawMap();
+                break;
+            case 'ArrowUp':
+                offsetY -= 50 / scale;
+                drawMap();
+                break;
+            case 'ArrowDown':
+                offsetY += 50 / scale;
+                drawMap();
+                break;
+        }
+    });
+
+    // Инициализация
+    window.addEventListener('load', () => {
+        initCanvas();
+        resetView();
+        updateZoomUI();
     });
 </script>
 </body>
