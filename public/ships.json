@@ -2,10 +2,10 @@
   "myShips": [
     {
       "id": "01996311-a212-7999-a5d9-866854c32b1f",
-      "x": 1978,
-      "y": 246,
+      "x": 1000,
+      "y": 800,
       "size": 2,
-      "hp": 2,
+      "hp": 1,
       "direction": "south",
       "speed": 0,
       "maxSpeed": 8,
