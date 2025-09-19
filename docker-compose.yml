@@ -1,0 +1,21 @@
+services:
+  php:
+    build: ./php
+    volumes:
+      - ./:/app
+    environment:
+      XDEBUG_CONFIG: remote_host={{PHP_IDE_HOST_IP}}
+      PHP_IDE_CONFIG: serverName=hamster
+    networks: [hamster]
+  nginx:
+    image: nginx:stable-alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./:/app
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf
+    depends_on: [php]
+    networks: [hamster]
+
+networks:
+  hamster:
