@@ -22,7 +22,7 @@ readonly class UpdateDataCommand
 
             $mapRequest = $this->client->request(
                 'GET',
-                'https://games-test.datsteam.dev/api/map', [
+                'https://games.datsteam.dev/api/map', [
                 'headers' => [
                     'accept' => 'application/json',
                     'X-Auth-Token' => 'a183405e-8c23-4e4b-afca-7b4a5b115fa8',
@@ -33,7 +33,7 @@ readonly class UpdateDataCommand
 
             $scanRequest = $this->client->request(
                 'GET',
-                'https://games-test.datsteam.dev/api/scan', [
+                'https://games.datsteam.dev/api/scan', [
                 'headers' => [
                     'accept' => 'application/json',
                     'X-Auth-Token' => 'a183405e-8c23-4e4b-afca-7b4a5b115fa8',

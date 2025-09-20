@@ -1,22 +1,22 @@
-POST https://games-test.datsteam.dev/api/register
+POST https://games.datsteam.dev/api/register
 accept: application/json
 X-Auth-Token: a183405e-8c23-4e4b-afca-7b4a5b115fa8
 Content-Type: application/x-www-form-urlencoded
 
 ###
 
-GET https://games-test.datsteam.dev/api/scan
+GET https://games.datsteam.dev/api/scan
 accept: application/json
 X-Auth-Token: a183405e-8c23-4e4b-afca-7b4a5b115fa8
 
 ###
 
-GET https://games-test.datsteam.dev/api/logs
+GET https://games.datsteam.dev/api/logs
 accept: application/json
 X-Auth-Token: a183405e-8c23-4e4b-afca-7b4a5b115fa8
 
 ###
 
-GET https://games-test.datsteam.dev/api/map
+GET https://games.datsteam.dev/api/map
 accept: application/json
 X-Auth-Token: a183405e-8c23-4e4b-afca-7b4a5b115fa8

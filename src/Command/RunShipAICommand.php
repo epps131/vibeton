@@ -19,7 +19,7 @@ class RunShipAICommand extends Command
         private ShipAIService $shipAIService,
     ) {
         parent::__construct();
-        $this->apiUrl = 'https://games-test.datsteam.dev/api/';
+        $this->apiUrl = 'https://games.datsteam.dev/api/';
     }
 
     protected function configure()
@@ -37,6 +37,7 @@ class RunShipAICommand extends Command
         $interval = (int) $input->getOption('interval');
         $maxTicks = (int) $input->getOption('max-ticks');
 
+        a:
         $io->title('Simple Aggressive Ship AI');
         $io->writeln('Initializing...');
 
@@ -127,11 +128,10 @@ class RunShipAICommand extends Command
 
             } while ($continuous);
 
-            return Command::SUCCESS;
 
         } catch (\Exception $e) {
             $io->error('Error: ' . $e->getMessage());
-            return Command::FAILURE;
+            goto a;
         }
     }
 }

@@ -40,7 +40,7 @@ class ShipAIService
             return;
         }
 
-        $response = $this->client->request('GET', 'https://games-test.datsteam.dev/api/map', [
+        $response = $this->client->request('GET', 'https://games.datsteam.dev/api/map', [
             'headers' => [
                 'Accept' => 'application/json',
                 'X-Auth-Token' => $this->authToken
@@ -60,7 +60,7 @@ class ShipAIService
 
     public function getGameState(): array
     {
-        $response = $this->client->request('GET', 'https://games-test.datsteam.dev/api/scan', [
+        $response = $this->client->request('GET', 'https://games.datsteam.dev/api/scan', [
             'headers' => [
                 'Accept' => 'application/json',
                 'X-Auth-Token' => $this->authToken
@@ -88,7 +88,7 @@ class ShipAIService
     {
         $payload = ['ships' => $commands];
 
-        $response = $this->client->request('POST', 'https://games-test.datsteam.dev/api/shipCommand', [
+        $response = $this->client->request('POST', 'https://games.datsteam.dev/api/shipCommand', [
             'headers' => [
                 'Accept' => 'application/json',
                 'X-Auth-Token' => $this->authToken
