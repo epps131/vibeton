@@ -23,7 +23,8 @@ final class MapController extends AbstractController
             'obstacles' => $mapData['obstacles'],
             'myShips' => $shipsData['myShips'],
             'enemyShips' => $shipsData['enemyShips'],
-            'tick' => $shipsData['tick']
+            'tick' => $shipsData['tick'],
+            'zone' => $shipsData['zone'],
         ]);
     }
 }

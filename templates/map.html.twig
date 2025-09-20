@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Game Map 2000x2000 with Ships</title>
+    <title>Game Map 2000x2000 with Ships and Storm</title>
     <style>
         body {
             margin: 0;
@@ -191,9 +191,46 @@
             z-index: 2000;
             display: none;
         }
+
+        /* Стили для зоны */
+        .zone-info {
+            position: fixed;
+            top: 60px;
+            right: 10px;
+            background: rgba(255, 165, 0, 0.9);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 11px;
+            z-index: 999;
+        }
+
+        .zone-warning {
+            position: fixed;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(255, 69, 0, 0.95);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            z-index: 2000;
+            display: none;
+        }
     </style>
 </head>
 <body>
+<!-- Добавляем отображение информации о зоне -->
+<div class="zone-info" id="zoneInfo">
+    🌪️ Зона: X: {{ zone.x|default(0) }}, Y: {{ zone.y|default(0) }}<br>
+    📏 Радиус: {{ zone.radius|default(1000) }}
+</div>
+
+<div class="zone-warning" id="zoneWarning">
+    ⚠️ КОРАБЛЬ В ОПАСНОЙ ЗОНЕ!
+</div>
+
 <div class="controls">
     <h3>🗺️ Карта: {{ mapWidth }}×{{ mapHeight }}</h3>
     <div class="stats">
@@ -230,6 +267,7 @@
         <button onclick="centerOnAllShips()">👁️</button>
         <button onclick="toggleEnemyRadii()">📡</button>
         <button onclick="focusOnEnemies()">🎯 Враги</button>
+        <button onclick="focusOnZone()">🌪️ Зона</button>
     </div>
 
     <div class="zoom-controls">
@@ -268,6 +306,14 @@
         <div class="legend-color" style="background: #FF9800;"></div>
         <span>Область стрельбы</span>
     </div>
+    <div class="legend-item">
+        <div class="legend-color" style="background: #32CD32;"></div>
+        <span>Безопасная зона</span>
+    </div>
+    <div class="legend-item">
+        <div class="legend-color" style="background: #FF6347;"></div>
+        <span>Опасная зона</span>
+    </div>
 </div>
 
 <div class="border-warning" id="borderWarning">
@@ -298,6 +344,7 @@
     const selectedShipInfo = document.getElementById('selectedShipInfo');
     const selectedShipDetails = document.getElementById('selectedShipDetails');
     const borderWarning = document.getElementById('borderWarning');
+    const zoneWarning = document.getElementById('zoneWarning');
 
     // Данные из Twig
     const MAP_WIDTH = {{ mapWidth }};
@@ -305,6 +352,7 @@
     const OBSTACLES = {{ obstacles|json_encode|raw }};
     const MY_SHIPS = {{ myShips|json_encode|raw }};
     const ENEMY_SHIPS = {{ enemyShips|json_encode|raw }};
+    let ZONE_INFO = {{ zone|json_encode|raw }};
     let CURRENT_TICK = {{ tick }};
 
     // Объединяем все корабли для поиска
@@ -323,6 +371,121 @@
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight;
         drawMap();
+    }
+
+    // Функция для отрисовки зоны
+    function drawZone() {
+        if (!ZONE_INFO || !ZONE_INFO.radius) return;
+
+        const centerX = (ZONE_INFO.x - offsetX) * scale;
+        const centerY = (ZONE_INFO.y - offsetY) * scale;
+        const radius = ZONE_INFO.radius * scale;
+
+        // Проверяем, видна ли зона на экране
+        if (centerX < -radius || centerX > canvas.width + radius ||
+            centerY < -radius || centerY > canvas.height + radius) {
+            return;
+        }
+
+        // Рисуем безопасную зону
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
+        ctx.fillStyle = 'rgba(144, 238, 144, 0.2)';
+        ctx.fill();
+        ctx.strokeStyle = '#32CD32';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Рисуем опасную зону (вне круга)
+        ctx.beginPath();
+        ctx.rect(0, 0, canvas.width, canvas.height);
+        ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
+        ctx.fillStyle = 'rgba(255, 99, 71, 0.1)';
+        ctx.fill('evenodd');
+
+        // Текст с информацией о зоне
+        if (scale > 3) {
+            ctx.fillStyle = '#32CD32';
+            ctx.font = '12px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('Безопасная зона', centerX, centerY - radius - 10);
+
+            ctx.fillStyle = '#FF6347';
+            ctx.fillText('Опасная зона', centerX, centerY + radius + 20);
+        }
+
+        // Проверяем корабли в опасной зоне
+        checkShipsInDanger();
+    }
+
+    function checkShipsInDanger() {
+        let shipsInDanger = 0;
+
+        MY_SHIPS.forEach(ship => {
+            const distance = Math.sqrt(
+                Math.pow(ship.x - ZONE_INFO.x, 2) +
+                Math.pow(ship.y - ZONE_INFO.y, 2)
+            );
+
+            if (distance > ZONE_INFO.radius) {
+                shipsInDanger++;
+
+                // Подсвечиваем корабли в опасности
+                const screenX = (ship.x - offsetX) * scale;
+                const screenY = (ship.y - offsetY) * scale;
+                const shipSize = ship.size * scale;
+
+                ctx.save();
+                ctx.beginPath();
+                ctx.arc(screenX + shipSize/2, screenY + shipSize/2, shipSize * 2, 0, 2 * Math.PI);
+                ctx.strokeStyle = '#FF0000';
+                ctx.lineWidth = 3;
+                ctx.setLineDash([5, 5]);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                ctx.restore();
+            }
+        });
+
+        // Показываем предупреждение если есть корабли в опасности
+        if (shipsInDanger > 0) {
+            zoneWarning.style.display = 'block';
+            zoneWarning.textContent = `⚠️ ${shipsInDanger} КОРАБЛЕЙ В ОПАСНОЙ ЗОНЕ!`;
+        } else {
+            zoneWarning.style.display = 'none';
+        }
+    }
+
+    // Основная функция отрисовки
+    function drawMap() {
+        const now = Date.now();
+        if (now - lastDrawTime < DRAW_THROTTLE) {
+            return;
+        }
+        lastDrawTime = now;
+
+        requestAnimationFrame(() => {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Сначала рисуем зону (под всем)
+            drawZone();
+
+            // Затем остальные элементы
+            drawGrid();
+            drawObstacles();
+            drawShips();
+            drawRadii(MY_SHIPS, '#2196F3', '#FF9800');
+
+            if (showEnemyRadii) {
+                drawRadii(ENEMY_SHIPS, '#ff5252', '#ff7676');
+            }
+
+            if (selectedShipId) {
+                highlightSelectedShip();
+            }
+
+            drawMapBounds();
+        });
     }
 
     // Центрирование на корабле
@@ -362,6 +525,29 @@
         }
     }
 
+    // Фокус на зоне
+    function focusOnZone() {
+        if (!ZONE_INFO) return;
+
+        const targetX = ZONE_INFO.x - canvas.width / (2 * scale);
+        const targetY = ZONE_INFO.y - canvas.height / (2 * scale);
+
+        // Устанавливаем масштаб чтобы видеть всю зону
+        scale = Math.min(
+            canvas.width / (ZONE_INFO.radius * 2.5),
+            canvas.height / (ZONE_INFO.radius * 2.5),
+            10
+        );
+
+        scale = Math.max(scale, 1);
+
+        offsetX = Math.max(0, Math.min(targetX, MAP_WIDTH - canvas.width / scale));
+        offsetY = Math.max(0, Math.min(targetY, MAP_HEIGHT - canvas.height / scale));
+
+        updateZoomUI();
+        drawMap();
+    }
+
     // Фокус на вражеских кораблях
     function focusOnEnemies() {
         if (ENEMY_SHIPS.length === 0) return;
@@ -388,7 +574,7 @@
         const scaleY = canvas.height / height;
 
         scale = Math.min(scaleX, scaleY, 15);
-        scale = Math.max(scale, 3); // Минимальный масштаб для врагов
+        scale = Math.max(scale, 3);
 
         offsetX = Math.max(0, Math.min(minX, MAP_WIDTH - canvas.width / scale));
         offsetY = Math.max(0, Math.min(minY, MAP_HEIGHT - canvas.height / scale));
@@ -503,12 +689,12 @@
             const ship = ALL_SHIPS.find(s => s.id === shipId);
             if (ship) {
                 let details = `
-                        <strong>${ship.id.substring(0, 12)}...</strong><br>
-                        Позиция: (${ship.x}, ${ship.y})<br>
-                        HP: ${ship.hp}/${ship.size}<br>
-                        Скорость: ${ship.speed}<br>
-                        Направление: ${ship.direction}
-                    `;
+                    <strong>${ship.id.substring(0, 12)}...</strong><br>
+                    Позиция: (${ship.x}, ${ship.y})<br>
+                    HP: ${ship.hp}/${ship.size}<br>
+                    Скорость: ${ship.speed}<br>
+                    Направление: ${ship.direction}
+                `;
 
                 // Добавляем информацию об игроке для вражеских кораблей
                 if (ship.playerName) {
@@ -520,6 +706,16 @@
                     details += `<br>Сканирование: ${ship.scanRadius}<br>`;
                     details += `Стрельба: ${ship.cannonRadius}<br>`;
                     details += `КД: ${ship.cannonCooldownLeft}/${ship.cannonCooldown}`;
+                }
+
+                // Проверяем находится ли корабль в опасной зоне
+                if (ZONE_INFO) {
+                    const distance = Math.sqrt(
+                        Math.pow(ship.x - ZONE_INFO.x, 2) +
+                        Math.pow(ship.y - ZONE_INFO.y, 2)
+                    );
+                    const inDanger = distance > ZONE_INFO.radius;
+                    details += `<br>🌪️ Зона: ${inDanger ? '<span style="color: red;">ОПАСНОСТЬ</span>' : 'Безопасно'}`;
                 }
 
                 selectedShipDetails.innerHTML = details;
@@ -556,76 +752,6 @@
             hideBorderWarning();
         }
     });
-
-    // Основная функция отрисовки
-    function drawMap() {
-        const now = Date.now();
-        if (now - lastDrawTime < DRAW_THROTTLE) {
-            return;
-        }
-        lastDrawTime = now;
-
-        requestAnimationFrame(() => {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            drawGrid();
-            drawObstacles();
-            drawShips();
-
-            // Рисуем радиусы для своих кораблей всегда, для врагов - по настройке
-            drawRadii(MY_SHIPS, '#2196F3', '#FF9800');
-            if (showEnemyRadii) {
-                drawRadii(ENEMY_SHIPS, '#ff5252', '#ff7676');
-            }
-
-            if (selectedShipId) {
-                highlightSelectedShip();
-            }
-
-            drawMapBounds();
-        });
-    }
-
-    // Отрисовка радиусов для указанных кораблей
-    function drawRadii(ships, scanColor, cannonColor) {
-        ships.forEach(ship => {
-            const screenX = (ship.x - offsetX) * scale;
-            const screenY = (ship.y - offsetY) * scale;
-
-            if (screenX < -ship.scanRadius * scale || screenX > canvas.width + ship.scanRadius * scale ||
-                screenY < -ship.scanRadius * scale || screenY > canvas.height + ship.scanRadius * scale) {
-                return;
-            }
-
-            // Радиус сканирования
-            ctx.beginPath();
-            ctx.arc(screenX, screenY, ship.scanRadius * scale, 0, 2 * Math.PI);
-            ctx.strokeStyle = scanColor;
-            ctx.lineWidth = 1;
-            ctx.stroke();
-
-            // Радиус стрельбы (только для своих кораблей или если включено для врагов)
-            if (scanColor !== '#ff5252' || showEnemyRadii) {
-                ctx.beginPath();
-                ctx.arc(screenX, screenY, ship.cannonRadius * scale, 0, 2 * Math.PI);
-                ctx.strokeStyle = cannonColor;
-                ctx.lineWidth = 1.5;
-                ctx.stroke();
-            }
-
-            // КД стрельбы (только для своих кораблей)
-            if (scanColor !== '#ff5252' && ship.cannonCooldownLeft > 0) {
-                ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
-                ctx.beginPath();
-                ctx.arc(screenX, screenY, ship.cannonRadius * scale, 0, 2 * Math.PI);
-                ctx.fill();
-
-                ctx.fillStyle = '#fff';
-                ctx.font = '12px Arial';
-                ctx.textAlign = 'center';
-                ctx.fillText(ship.cannonCooldownLeft.toString(), screenX, screenY + 4);
-            }
-        });
-    }
 
     // Отрисовка кораблей
     function drawShips() {
@@ -687,7 +813,48 @@
         }
     }
 
-    // Остальные функции без изменений...
+    // Отрисовка радиусов для указанных кораблей
+    function drawRadii(ships, scanColor, cannonColor) {
+        ships.forEach(ship => {
+            const screenX = (ship.x - offsetX) * scale;
+            const screenY = (ship.y - offsetY) * scale;
+
+            if (screenX < -ship.scanRadius * scale || screenX > canvas.width + ship.scanRadius * scale ||
+                screenY < -ship.scanRadius * scale || screenY > canvas.height + ship.scanRadius * scale) {
+                return;
+            }
+
+            // Радиус сканирования
+            ctx.beginPath();
+            ctx.arc(screenX, screenY, ship.scanRadius * scale, 0, 2 * Math.PI);
+            ctx.strokeStyle = scanColor;
+            ctx.lineWidth = 1;
+            ctx.stroke();
+
+            // Радиус стрельбы (только для своих кораблей или если включено для врагов)
+            if (scanColor !== '#ff5252' || showEnemyRadii) {
+                ctx.beginPath();
+                ctx.arc(screenX, screenY, ship.cannonRadius * scale, 0, 2 * Math.PI);
+                ctx.strokeStyle = cannonColor;
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+            }
+
+            // КД стрельбы (только для своих кораблей)
+            if (scanColor !== '#ff5252' && ship.cannonCooldownLeft > 0) {
+                ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
+                ctx.beginPath();
+                ctx.arc(screenX, screenY, ship.cannonRadius * scale, 0, 2 * Math.PI);
+                ctx.fill();
+
+                ctx.fillStyle = '#fff';
+                ctx.font = '12px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText(ship.cannonCooldownLeft.toString(), screenX, screenY + 4);
+            }
+        });
+    }
+
     function drawGrid() {
         const cellSize = BASE_CELL_SIZE * scale;
         const startX = Math.floor(offsetX / cellSize) * cellSize;
@@ -802,7 +969,7 @@
         ctx.setLineDash([]);
     }
 
-    // Функции масштабирования и навигации...
+    // Функции масштабирования и навигации
     function zoomIn() {
         scale = Math.min(20, scale + 1);
         updateZoomUI();
@@ -828,7 +995,7 @@
         if (zoomLevel) zoomLevel.textContent = scale + 'x';
     }
 
-    // Обработчики событий...
+    // Обработчики событий
     canvas.addEventListener('mousedown', (e) => {
         isDragging = true;
         lastX = e.clientX;
@@ -955,6 +1122,9 @@
             case 'r':
                 toggleEnemyRadii();
                 break;
+            case 'z':
+                focusOnZone();
+                break;
         }
     });
 
@@ -964,9 +1134,9 @@
         resetView();
         updateZoomUI();
 
-        // Автофокус на врагах при загрузке, если они есть
-        if (ENEMY_SHIPS.length > 0) {
-            setTimeout(focusOnEnemies, 1000);
+        // Автофокус на зоне при загрузке
+        if (ZONE_INFO) {
+            setTimeout(focusOnZone, 500);
         }
     });
 </script>
