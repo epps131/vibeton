@@ -131,7 +131,10 @@ class RunShipAICommand extends Command
 
         } catch (\Exception $e) {
             $io->error('Error: ' . $e->getMessage());
-            goto a;
+
+            return $this->execute($input, $output);
         }
+
+        return 1;
     }
 }
